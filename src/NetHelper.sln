@@ -1,0 +1,20 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 10.00
+# Visual Studio 2008
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "Disasterless Mod", "OP2Script.vcproj", "{371F4704-3EB9-48BE-B94E-0C0B8F17AAF9}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Win32 = Debug|Win32
+		Release MinSize|Win32 = Release MinSize|Win32
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{371F4704-3EB9-48BE-B94E-0C0B8F17AAF9}.Debug|Win32.ActiveCfg = Debug|Win32
+		{371F4704-3EB9-48BE-B94E-0C0B8F17AAF9}.Debug|Win32.Build.0 = Debug|Win32
+		{371F4704-3EB9-48BE-B94E-0C0B8F17AAF9}.Release MinSize|Win32.ActiveCfg = Release MinSize|Win32
+		{371F4704-3EB9-48BE-B94E-0C0B8F17AAF9}.Release MinSize|Win32.Build.0 = Release MinSize|Win32
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+EndGlobal
