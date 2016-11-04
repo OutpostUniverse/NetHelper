@@ -1,473 +1,644 @@
 
 
-#include <windows.h>
 #include "Patcher.h"
+#ifdef PATCHER_MINHOOK
+#include "MinHook.h"
+#endif
+#include <unordered_map>
+#include <string>
+#include <algorithm>
 
+namespace Patcher {
 
-// Global variables
-_Patch* Patcher::nextPatchAddress = NULL;
-_Patch* Patcher::patchListHead = NULL;
-int Patcher::numPatches = 0;
+static std::vector<std::shared_ptr<patch>> allPatches;
+static std::unordered_map<BYTE*, BYTE> originalBytes;
+static std::unordered_map<HMODULE, uintptr_t> modulePrefAddr;
+static HMODULE baseModule = nullptr;
+#ifdef PATCHER_MINHOOK
+static int minHookCount = 0;
+#endif
 
-DWORD Patcher::imageBase = NULL;
+static bool InitBaseModule();
+static HMODULE GetModuleFromAddress(void *address);
+static bool IsModule64(HMODULE module);
 
+// Memory patch class functions
 
-// Rewrites an arbitrarily-sized chunk of code or data at the specified address
-// expectedBytesBuffer (optional) points to a buffer containing the data expected for that address for sanity checking
-// All the Patcher::Patch* functions (including templated ones) chain down to this function
-_Patch* Patcher::Patch(void *address, void *newBytesBuffer, void *expectedBytesBuffer, unsigned int sizeOfBytesBuffer, bool onlyQueue) {
-  _Patch *patch;
+// Recommended to use one of the Patch factory functions to instantiate
+// Use Unpatch to handle deletion of patches created by Patch functions
 
-  if (!address) {
-    return NULL;
+MemPatch::MemPatch(void *_address, size_t patchSize, const void *newBytes,
+                   const void *expectedBytes, bool enable) {
+  address = _address;
+  size = patchSize;
+
+  if ((invalid = !address || !size || !newBytes)) {
+    return;
   }
 
-  if (nextPatchAddress) {
-    patch = nextPatchAddress;
-    *patch = _Patch(address, newBytesBuffer, expectedBytesBuffer, sizeOfBytesBuffer, !onlyQueue);
-    nextPatchAddress = (_Patch*)NULL;
-  }
-  else {
-    patch = new _Patch(address, newBytesBuffer, expectedBytesBuffer, sizeOfBytesBuffer, !onlyQueue);
-  }
-  if (!onlyQueue && !patch->Valid()) {
-    delete patch;
-    return NULL;
-  }
-  AppendPatchToList(patch);
-  return patch;
-}
+  oldBytesBuffer.reset(new BYTE[size]);
+  newBytesBuffer.reset(new BYTE[size]);
 
-_Patch* Patcher::Patch(void *address, void *newBytesBuffer, unsigned int sizeOfBytesBuffer, bool onlyQueue) {
-  return Patch(address, newBytesBuffer, NULL, sizeOfBytesBuffer, onlyQueue);
-}
-
-
-// Inserts a jump instruction to our function at the specified address. If done in the middle of a function,
-//  remember to reproduce any overwritten instructions (inserted instruction overwrites 5 bytes)
-_Patch* Patcher::PatchFunction(void *functionAddress, void *newFunctionAddress, bool onlyQueue) {
-  #pragma pack(push,1)
-  struct JMP_32 {
-    unsigned char opcode;
-    void *address;
-  };
-  #pragma pack(pop)
-
-  if (!functionAddress || !newFunctionAddress) {
-    return NULL;
+  if ((invalid = !oldBytesBuffer || !newBytesBuffer ||
+                 memcpy(newBytesBuffer.get(), newBytes, size) !=
+                 newBytesBuffer.get())) {
+    return;
   }
 
-  JMP_32 code;
-  code.opcode = 0xE9; // JMP near rel32
-  code.address = (void*)((char*)newFunctionAddress - ((char*)functionAddress + 5));
-
-  return Patch(functionAddress, &code, sizeof(JMP_32), onlyQueue);
-}
-
-
-// Inserts a call instruction to our function at the specified address If done in the middle of a function,
-//  remember to reproduce any overwritten instructions (inserted instruction overwrites 5 bytes)
-_Patch* Patcher::PatchFunctionCall(void *functionCallAddress, void *newFunctionAddress, bool onlyQueue) {
-  #pragma pack(push,1)
-  struct CALL_32 {
-    unsigned char opcode;
-    void *address;
-  };
-  #pragma pack(pop)
-
-  if (!functionCallAddress || !newFunctionAddress) {
-    return NULL;
+  DWORD oldAttr;
+  // Test expected bytes vs. actual, and copy original bytes
+  if ((invalid = !VirtualProtect(address, size, PAGE_EXECUTE_READWRITE,
+                                 &oldAttr))) {
+    return;
   }
 
-  CALL_32 code;
-  code.opcode = 0xE8; // CALL near rel32
-  code.address = (void*)((char*)newFunctionAddress - ((char*)functionCallAddress + 5));
+  invalid = (expectedBytes && memcmp(expectedBytes, address, size) != 0) ||
+            memcpy(oldBytesBuffer.get(), address, size) != oldBytesBuffer.get();
 
-  return Patch(functionCallAddress, &code, sizeof(CALL_32), onlyQueue);
-}
+  VirtualProtect(address, size, oldAttr, &oldAttr);
 
-
-// Replaces the specified virtual function table pointer with a pointer to our function
-_Patch* Patcher::PatchFunctionVirtual(void *vtblAddress, void *functionAddress, void *newFunctionAddress, bool onlyQueue) {
-  if (!vtblAddress || !functionAddress || !newFunctionAddress) {
-    return NULL;
+  if (invalid) {
+    return;
   }
 
-  void **vtbl = (void**)vtblAddress;
+  // Store old bytes in map if they weren't already, or fix local copy
+  for (size_t i = 0; i < patchSize; ++i) {
+    auto *p = reinterpret_cast<BYTE*>(address) + i;
+    auto it = originalBytes.find(p);
 
-  // Iterate through the vtbl until we find the function entry we want to replace
-  for (int i = 0; i < 1024 && vtbl[i]; ++i) {
-    if (vtbl[i] == functionAddress) {
-      return PatchFunctionVirtual(vtblAddress, i, newFunctionAddress, onlyQueue);
+    if (it == originalBytes.end()) {
+      originalBytes[p] = oldBytesBuffer[i];
+    }
+    else {
+      oldBytesBuffer[i] = it->second;
     }
   }
 
-  return NULL; // Unable to find function in virtual function table
+  if (enable) {
+    Enable();
+  }
+  else {
+    GetModuleState(module, moduleHash);
+  }
 }
 
+MemPatch::~MemPatch() {
+  Disable();
+}
 
-// Replaces the specified virtual function table entry index with a pointer to our function
-_Patch* Patcher::PatchFunctionVirtual(void *vtblAddress, unsigned int vtblEntryIndex, void *newFunctionAddress, bool onlyQueue) {
-  if (!vtblAddress || !newFunctionAddress) {
-    return NULL;
+bool MemPatch::Enable(bool force) {
+  if (enabled && !force) {
+    return true;
+  }
+  else if (invalid) {
+    return false;
   }
 
-  void **vtbl = (void**)vtblAddress;
+  if (!VerifyModule()) {
+    return !(invalid = true);
+  }
 
-  return Patch(&vtbl[vtblEntryIndex], &newFunctionAddress, sizeof(vtbl[vtblEntryIndex]), onlyQueue);
+  DWORD oldAttr;
+  if (!VirtualProtect(address, size, PAGE_EXECUTE_READWRITE, &oldAttr)) {
+    return false;
+  }
+  memcpy(address, newBytesBuffer.get(), size);
+  VirtualProtect(address, size, oldAttr, &oldAttr);
+
+  return (enabled = true);
+}
+
+bool MemPatch::Disable(bool force) {
+  if (!enabled && !force) {
+    return true;
+  }
+  else if (invalid) {
+    return false;
+  }
+
+  if (!VerifyModule()) {
+    return !(invalid = true);
+  }
+
+  DWORD oldAttr;
+  if (!VirtualProtect(address, size, PAGE_EXECUTE_READWRITE, &oldAttr)) {
+    return false;
+  }
+  memcpy(address, oldBytesBuffer.get(), size);
+  VirtualProtect(address, size, oldAttr, &oldAttr);
+
+  return !(enabled = false);
+}
+
+// Returns a pointer to the original bytes
+const void* MemPatch::GetOriginal() {
+  return !invalid ? reinterpret_cast<const void*>(oldBytesBuffer.get()) : nullptr;
+}
+
+#ifdef PATCHER_MINHOOK
+// MinHook patch class functions
+
+MHPatch::MHPatch(void *function, const void *_newFunction, bool enable) {
+  address = function;
+  newFunction = _newFunction;
+  trampoline = nullptr;
+
+  if (minHookCount == 0) {
+    MH_STATUS status = MH_Initialize();
+    if (status == MH_ERROR_ALREADY_INITIALIZED) {
+      // Initialized elsewhere, so block this class from uninitializing it
+      ++minHookCount;
+    }
+    minHookCount += status == MH_OK || status == MH_ERROR_ALREADY_INITIALIZED;
+  }
+  else {
+    ++minHookCount;
+  }
+
+  if ((invalid = minHookCount == 0)) {
+    return;
+  }
+
+  if ((invalid = !address || !newFunction ||
+                 MH_CreateHook(address, newFunction, &trampoline) != MH_OK)) {
+    return;
+  }
+
+  if (enable) {
+    Enable();
+  }
+  else {
+    GetModuleState(module, moduleHash);
+  }
+}
+
+MHPatch::~MHPatch() {
+  Disable();
+
+  if (minHookCount > 0) {
+    if (VerifyModule()) {
+      MH_RemoveHook(address);
+    }
+
+    if (--minHookCount == 0) {
+      MH_Uninitialize();
+    }
+  }
+}
+
+bool MHPatch::Enable(bool force) {
+  if (enabled && !force) {
+    return true;
+  }
+  else if (invalid) {
+    return false;
+  }
+
+  if (!VerifyModule()) {
+    return !(invalid = true);
+  }
+
+  if (enabled && force) {
+    return (enabled = (MH_DisableHook(address) == MH_OK &&
+                       MH_EnableHook(address)  == MH_OK));
+  }
+  else {
+    return (enabled = MH_EnableHook(address) == MH_OK);
+  }
+}
+
+bool MHPatch::Disable(bool unused) {
+  if (!enabled) {
+    return true;
+  }
+  else if (invalid) {
+    return false;
+  }
+
+  if (!VerifyModule()) {
+    return !(invalid = true);
+  }
+
+  if (MH_DisableHook(address) == MH_OK) {
+    return !(enabled = false);
+  }
+  else {
+    return false;
+  }
+}
+
+// Returns a pointer to a MinHook function trampoline
+const void* MHPatch::GetOriginal() {
+  return !invalid ? trampoline : nullptr;
+}
+#endif
+
+// Ensure the module associated with the patch address is still loaded
+bool patch::VerifyModule() {
+  if (module == reinterpret_cast<HMODULE>(-1)) {
+    GetModuleState(module, moduleHash);
+    return true;
+  }
+  else if (InitBaseModule() && module == baseModule) {
+    return true;
+  }
+
+  HMODULE curModule;
+  size_t curHash;
+  GetModuleState(curModule, curHash);
+
+  return module == curModule && moduleHash == curHash;
+}
+
+void patch::GetModuleState(HMODULE &moduleOut, size_t &hashOut) {
+  if ((moduleOut = GetModuleFromAddress(address))) {
+    if (InitBaseModule() && moduleOut == baseModule) {
+      // Base module is unloaded last, this sanity checking isn't necessary
+      return;
+    }
+
+    static wchar_t sBuf[275];
+    wchar_t *name = sBuf;
+    std::unique_ptr<wchar_t[]> dBuf;
+    size_t bufLen  = _countof(sBuf),
+           nameLen = 0;
+    int tries = 0;
+
+    do {
+      if (nameLen >= bufLen) {
+        bufLen *= 11;
+        dBuf.reset(new wchar_t[bufLen]);
+        name = dBuf.get();
+      }
+      nameLen = GetModuleFileNameW(moduleOut, name, bufLen);
+      ++tries;
+    } while (nameLen >= bufLen && tries < 3);
+
+    name[bufLen-1] = L'\0';
+
+    hashOut = std::hash<std::wstring>()(name);
+  }
+  else {
+    hashOut = moduleHash - 1;
+  }
 }
 
 
-// Patches all crossreferences to a global by scanning the PE base relocation table and patching each address found
-_Patch* Patcher::PatchGlobalReferences(void *oldGlobalAddress, void *newGlobalAddress, bool onlyQueue) {
-  #pragma pack(push,1)
+// Factory functions
+  
+// Rewrites an arbitrarily-sized chunk of code or data at the specified address
+// expectedBytes (optional) points to a buffer containing the data expected for
+// that address for sanity checking
+std::shared_ptr<patch> Patch(void *address, size_t patchSize, const void *newBytes,
+                             const void *expectedBytes, bool enable) {
+  if (!address || !patchSize || !newBytes) {
+    return nullptr;
+  }
+
+  auto result = std::make_shared<MemPatch>(address, patchSize, newBytes,
+                                           expectedBytes, enable);
+  if (!result || !result->GetValid()) {
+    return nullptr;
+  }
+  allPatches.push_back(result);
+
+  return result;
+}
+
+
+// Inserts a jump instruction. Can use MinHook.
+std::shared_ptr<patch> PatchFunction(void *address, const void *newFunction,
+                                     bool enable) {
+  if (!address || !newFunction) {
+    return nullptr;
+  }
+
+  #ifdef PATCHER_MINHOOK
+
+  auto result = std::make_shared<MHPatch>(address, newFunction, enable);
+  if (!result || !result->GetValid()) {
+    return nullptr;
+  }
+  allPatches.push_back(result);
+
+  return result;
+
+  #else
+
+  #pragma pack(push, 1)
+  struct {
+    unsigned char opcode;
+    void *address;
+  } jmp32;
+  #pragma pack(pop)
+
+  jmp32.opcode = 0xE9; // JMP near pcrel32
+  jmp32.address = reinterpret_cast<void*>(reinterpret_cast<uintptr_t>(newFunction) -
+                                          (reinterpret_cast<uintptr_t>(address) +
+                                           sizeof(jmp32)));
+
+  return Patch(address, sizeof(jmp32), &jmp32, nullptr, enable);
+
+  #endif
+}
+
+// Inserts/rewrites a call instruction
+std::shared_ptr<patch> PatchFunctionCall(void *address, const void *newFunction,
+                                         bool enable) {
+  if (!address || !newFunction) {
+    return nullptr;
+  }
+
+  #pragma pack(push, 1)
+  struct {
+    unsigned char opcode;
+    void *address;
+  } call32;
+  #pragma pack(pop)
+
+  call32.opcode = 0xE8; // CALL near pcrel32
+  call32.address = reinterpret_cast<void*>(reinterpret_cast<uintptr_t>(newFunction) -
+                                           (reinterpret_cast<uintptr_t>(address) +
+                                            sizeof(call32)));
+
+  return Patch(address, sizeof(call32), &call32, nullptr, enable);
+}
+
+
+// Replaces virtual function table entry by function address
+std::shared_ptr<patch> PatchFunctionVirtual(void *vftableAddress,
+                                            const void *oldFunction,
+                                            const void *newFunction, bool enable) {
+  if (!vftableAddress || !oldFunction || !newFunction) {
+    return nullptr;
+  }
+
+  void **vftable = reinterpret_cast<void**>(vftableAddress);
+
+  // Iterate through the vftable until we find the function we want to replace
+  for (int i = 0; i < 1024 && vftable[i]; ++i) {
+    if (vftable[i] == oldFunction) {
+      return PatchFunctionVirtual(vftableAddress, i, newFunction, enable);
+    }
+  }
+
+  return nullptr; // Unable to find function in virtual function table
+}
+
+// Replaces virtual function table entry by index
+std::shared_ptr<patch> PatchFunctionVirtual(void *vftableAddress,
+                                            int vftableEntryIndex,
+                                            const void *newFunction, bool enable) {
+  if (!vftableAddress || !newFunction) {
+    return nullptr;
+  }
+
+  void **vftable = reinterpret_cast<void**>(vftableAddress);
+
+  return Patch(&vftable[vftableEntryIndex], sizeof(void*), &newFunction, nullptr,
+               enable);
+}
+
+
+// Patches all references to a global variable/object in base relocation table
+bool PatchGlobalReferences(const void *oldGlobalAddress,
+                           const void *newGlobalAddress,
+                           std::vector<std::shared_ptr<patch>> *out,
+                           bool enable, HMODULE module) {
+  #pragma pack(push, 1)
   struct TypeOffset {
-    unsigned short offset  :12; // offset, relative to the VirtualAddress value of the parent IMAGE_BASE_RELOCATION block
-    unsigned short type    :4;  // IMAGE_REL_BASED_xxx - usually 3, 0 is sometimes used as a terminator/padder
+    WORD offset :12; // Offset, relative to VirtualAddress of the parent block
+    WORD type   :4;  // IMAGE_REL_BASED_x - HIGHLOW (x86) or DIR64 (x86_64)
   };
   #pragma pack(pop)
 
-  _Patch *patch, *first = NULL;
-
   if (!oldGlobalAddress || !newGlobalAddress) {
-    return NULL;
+    return false;
   }
 
-  // Obtain PE file header info and use it to locate the base relocation table and get its size
-  static IMAGE_DOS_HEADER *dosHeader = (IMAGE_DOS_HEADER*)OP2Addr(EXPECTED_OP2_ADDR);  // Call to OP2Addr ensures imageBase is initialized
-  if (!dosHeader) {
-    return NULL;
+  if (module == reinterpret_cast<HMODULE>(-1)) {
+    if (!InitBaseModule()) {
+      return false;
+    }
+    module = baseModule;
   }
-  static IMAGE_OPTIONAL_HEADER *optHeader = (IMAGE_OPTIONAL_HEADER*)(imageBase + dosHeader->e_lfanew + 0x18);
-  static IMAGE_DATA_DIRECTORY *relocDataDir = &optHeader->DataDirectory[IMAGE_DIRECTORY_ENTRY_BASERELOC];
-  if (!relocDataDir->VirtualAddress || !relocDataDir->Size) { // No base relocation table
-    return NULL;
+  else if (!module) {
+    return false;
   }
 
-  static IMAGE_BASE_RELOCATION *baseRelocTable
-    = (IMAGE_BASE_RELOCATION*)(imageBase + relocDataDir->VirtualAddress); // 0x00489000
+  std::vector<std::shared_ptr<patch>> result;
+  if (!out) {
+    out = &result;
+  }
 
-  IMAGE_BASE_RELOCATION *relocBlock = baseRelocTable; // Relocation table starts with the first block's header
-  // Iterate through each relocation table block (for OP2 and most PE apps, each block represents 4096 bytes, i.e. 0x401000-0x402000)
-  while ((DWORD)relocBlock < (DWORD)baseRelocTable + relocDataDir->Size - 1 && relocBlock->SizeOfBlock) {
-    TypeOffset *relocArray = (TypeOffset*)((DWORD)relocBlock + sizeof(IMAGE_BASE_RELOCATION));
-    // Iterate through each relocation in this page to find references to the global and replace them
-    for (DWORD i = 0; i < (relocBlock->SizeOfBlock - sizeof(IMAGE_BASE_RELOCATION)) / sizeof(relocArray[0]); ++i) {
-      if (relocArray[i].type != IMAGE_REL_BASED_HIGHLOW) {
+  std::vector<std::shared_ptr<patch>>::iterator first = out->end();
+  bool firstInserted = false;
+
+  // Locate the base relocation table via the PE header
+  auto *optionalHeader = &reinterpret_cast<IMAGE_NT_HEADERS*>(
+    reinterpret_cast<uintptr_t>(module) +
+    reinterpret_cast<IMAGE_DOS_HEADER*>(module)->e_lfanew)->OptionalHeader;
+
+  IMAGE_DATA_DIRECTORY *relocDataDir;
+  if (optionalHeader->Magic == IMAGE_NT_OPTIONAL_HDR32_MAGIC) {
+    relocDataDir = &optionalHeader->DataDirectory[IMAGE_DIRECTORY_ENTRY_BASERELOC];
+  }
+  else if (optionalHeader->Magic == IMAGE_NT_OPTIONAL_HDR64_MAGIC) {
+    relocDataDir = &reinterpret_cast<IMAGE_OPTIONAL_HEADER64*>(optionalHeader)
+                   ->DataDirectory[IMAGE_DIRECTORY_ENTRY_BASERELOC];
+  }
+  else {
+    // Not a valid PE image
+    return false;
+  }
+
+  if (!relocDataDir->VirtualAddress || !relocDataDir->Size) {
+    // No base relocation table
+    return false;
+  }
+
+  auto *baseRelocTable = reinterpret_cast<IMAGE_BASE_RELOCATION*>(
+    module + relocDataDir->VirtualAddress);
+
+  // Relocation table starts with the first block's header
+  IMAGE_BASE_RELOCATION *curBlock = baseRelocTable;
+  // Iterate through blocks, typically 4096 bytes each, e.g. 0x401000-0x402000
+  while (reinterpret_cast<uintptr_t>(curBlock) <
+         reinterpret_cast<uintptr_t>(baseRelocTable) + relocDataDir->Size &&
+         curBlock->SizeOfBlock) {
+    auto *relocArray = reinterpret_cast<TypeOffset*>(
+      reinterpret_cast<uintptr_t>(curBlock) + sizeof(IMAGE_BASE_RELOCATION));
+    size_t numRelocs = (curBlock->SizeOfBlock - sizeof(IMAGE_BASE_RELOCATION))
+                       / sizeof(relocArray[0]);
+
+    // Enumerate relocations, find references to the global and replace them
+    for (size_t i = 0; i < numRelocs; ++i) {
+      void **ptrAddress = reinterpret_cast<void**>(
+        reinterpret_cast<uintptr_t>(module) + curBlock->VirtualAddress +
+        relocArray[i].offset);
+      void *address;
+      size_t ptrSize;
+
+      if (relocArray[i].type == IMAGE_REL_BASED_HIGHLOW) {
+        address = reinterpret_cast<void*>(
+          static_cast<uintptr_t>(*reinterpret_cast<DWORD*>(ptrAddress)));
+        ptrSize = sizeof(DWORD);
+      }
+      else if (relocArray[i].type == IMAGE_REL_BASED_DIR64) {
+        address = reinterpret_cast<void*>(
+          static_cast<uintptr_t>(*reinterpret_cast<ULONGLONG*>(ptrAddress)));
+        ptrSize = sizeof(ULONGLONG);
+      }
+      else {
         continue;
       }
 
-      DWORD *addr = (DWORD*)(imageBase + relocBlock->VirtualAddress + relocArray[i].offset);
-      if (*addr == (DWORD)oldGlobalAddress) { // Global reference found, patch it with a pointer to our global
-        if ((patch = Patch(addr,
-            &newGlobalAddress,
-            &oldGlobalAddress,
-            sizeof(newGlobalAddress),
-            onlyQueue))) {
-          if (!first) {
-            first = patch;
+      if (address == oldGlobalAddress) {
+        // Found a reference to the global we want to patch
+        std::shared_ptr<patch> curPatch;
+        if ((curPatch = Patch(address, ptrSize, &newGlobalAddress,
+                              &oldGlobalAddress, enable))) {
+          out->push_back(curPatch);
+
+          if (!firstInserted) {
+            first = out->end() - 1;
+            firstInserted = true;
           }
         }
-        else { // Failed to apply patch
-          while (first) { // Clean up any previously applied reference patches
-            _Patch *delPatch = first;
-            first = first->previous;
-            delPatch->Unpatch(true);
+        else {
+          // Clean up any previously created reference patches
+          for (auto it = first; it != out->end(); ++it) {
+            Unpatch(*it);
           }
-          return NULL;
+          out->erase(first, out->end());
+          return false;
         }
       }
     }
 
     // Set pointer to next relocation table block
-    relocBlock = (IMAGE_BASE_RELOCATION*)((DWORD)relocBlock + relocBlock->SizeOfBlock);
+    curBlock = reinterpret_cast<IMAGE_BASE_RELOCATION*>(
+      reinterpret_cast<uintptr_t>(curBlock) + curBlock->SizeOfBlock);
   }
 
-  return first; // You can do while (first) { [...] first = first->previous; } to get all the reference patches
-                //  (if done before any new patches are applied)
-                // If no patches applied/global not found in relocation table, this returned value will be NULL
+  return firstInserted;
 }
 
 
-// Mass applies all patches that are queued or otherwise not currently applied
-int Patcher::DoPatchAll() {
-  if (numPatches <= 0) {
-    return -1;
+// Helper function to delete patches created by factory functions
+bool Unpatch(std::shared_ptr<patch> &which, bool doDelete, bool force) {
+  if (!which) {
+    return false;
   }
 
-  int returnedValue = 1, numErrors = 0;
-  _Patch *curPatch = patchListHead;
-
-  while (curPatch) {
-    if (!curPatch->Applied()) {
-      if (curPatch->Patch() == 0) {
-        returnedValue = 0;
-        ++numErrors;
-      }
+  bool result = which->Disable(force);
+  if (doDelete) {
+    auto it = std::find(allPatches.begin(), allPatches.end(), which);
+    if (it != allPatches.end()) {
+      allPatches.erase(it);
     }
-
-    curPatch = curPatch->next;
+    which.reset();
   }
-
-  return returnedValue;
+  return result;
 }
 
-
-// Mass unapplies all patches. You should call Patcher::DoUnpatchAll(true,true) on unload for cleanup.
-int Patcher::DoUnpatchAll(bool doDelete, bool force) {
-  if (numPatches <= 0) {
-    return -1;
-  }
-
-  int returnedValue = 1, numErrors = 0;
-  _Patch *curPatch = patchListHead;
-  _Patch *nextPatch = NULL;
-
-  while (curPatch) {
-    nextPatch = curPatch->next;
-
-    if (curPatch->Applied()) {
-      if (curPatch->Unpatch(doDelete, force) == 0) {
-        returnedValue = 0;
-        ++numErrors;
-      }
+// Enables all unapplied patches and optionally reapplies enabled patches
+bool PatchAll(bool force) {
+  bool result = true;
+  for (auto it = allPatches.rbegin(); it != allPatches.rend(); ++it) {
+    if ((*it)->Enable(force) == false) {
+      result = false;
     }
-
-    curPatch = nextPatch;
   }
-
-  return returnedValue;
+  return result;
 }
 
-
-
-
-// Gets the address of pre-allocated patch; only used with the #define functions
-_Patch* Patcher::GetNextPatchAddress() {
-  if (!nextPatchAddress) {
-    AllocateNextPatch();
-  }
-  return nextPatchAddress;
-}
-
-
-// Adds patch to the linked list (used for mass patch/unpatch)
-void Patcher::AppendPatchToList(_Patch *patch) {
-  if (patchListHead) {
-    patchListHead->previous = patch;
-  }
-
-  patch->next = patchListHead;
-  patchListHead = patch;
-
-  ++numPatches;
-}
-
-
-// Removes patch from the linked list
-void Patcher::RemovePatchFromList(_Patch *patch, bool forceUnpatch) {
-  if (patchListHead == patch) {
-    patchListHead = patchListHead->next;
-  }
-
-  if (patch->previous) {
-    patch->previous->next = patch->next;
-  }
-  if (patch->next) {
-    patch->next->previous = patch->previous;
-  }
-
-  if (forceUnpatch && patch->Applied()) {
-    patch->Unpatch(false, true);
-  }
-
-  --numPatches;
-}
-
-
-// Pre-allocates memory for the next patch, only used within the #define functions
-void Patcher::AllocateNextPatch() {
-  if (!nextPatchAddress) {
-    nextPatchAddress = new _Patch();
-  }
-}
-
-
-DWORD Patcher::InitModuleBase(char module[]) {
-  return (!imageBase) ? (imageBase = (DWORD)GetModuleHandle(module)) : imageBase;
-}
-
-
-
-// Main constructor
-_Patch::_Patch(void *address, void *newBytes, void *expectedBytes, unsigned int sizeOfBytes, bool doApply) {
-  DWORD oldProtection;
-
-  this->address = address;
-  this->patchSize = sizeOfBytes;
-  this->oldBytesBuffer = new unsigned char[this->patchSize];
-  this->newBytesBuffer = new unsigned char[this->patchSize];
-  memcpy(this->newBytesBuffer, newBytes, this->patchSize);
-
-  this->invalid = false;
-
-  // Test expected bytes vs. actual, and copy original bytes for future unpatching
-  if (!VirtualProtect(this->address, this->patchSize, PAGE_READWRITE, &oldProtection)
-    || (expectedBytes != NULL && memcmp(expectedBytes, this->address, this->patchSize) != 0)
-    || memcpy(this->oldBytesBuffer, this->address, this->patchSize) < (void*)0
-    || !VirtualProtect(this->address, this->patchSize, oldProtection, &oldProtection))
-    this->invalid = true;
-
-  this->isApplied = false;
-  this->isPermanent = false;
-  this->leaveMemoryUnprotected = false;
-  if (doApply) {
-    this->Patch();
-  }
-
-  this->previous = NULL;
-  this->next = NULL;
-}
-
-// Dummy default constructor, only used by Patcher::AllocateNextPatch()
-_Patch::_Patch() {
-  memset(this, NULL, sizeof(_Patch));
-  this->invalid = true;
-}
-
-
-_Patch::~_Patch() {
-  if (this->isApplied) {
-    this->Unpatch(false);
-  }
-
-  if (this->oldBytesBuffer) {
-    delete [] this->oldBytesBuffer;
-  }
-  if (this->newBytesBuffer) {
-    delete [] this->newBytesBuffer;
-  }
-}
-
-
-// Apply patch
-int _Patch::Patch(bool repatch) {
-  DWORD oldAttr;
-
-  if (this->invalid) {
-    return 0;
-  }
-
-  if (this->isApplied && !repatch) {
-    return 1;
-  }
-
-  if (!VirtualProtect(address, this->patchSize, PAGE_EXECUTE_READWRITE, &oldAttr)) {
-    return 0;
-  }
-  memcpy(this->address, this->newBytesBuffer, this->patchSize);
-  if (!this->leaveMemoryUnprotected) {
-    VirtualProtect(address, this->patchSize, oldAttr, &oldAttr);
-  }
-  else {
-    this->oldPageProtection = oldAttr;
-  }
-
-  this->isApplied = true;
-
-  if (this->isPermanent && !repatch) {
-    Patcher::RemovePatchFromList(this);
-    delete this;
-  }
-
-  return 1;
-}
-
-
-// Unapply patch
-int _Patch::Unpatch(bool doDelete, bool force) {
-  int returnedValue = 1;
-  DWORD oldAttr;
-
-  if (this->invalid) {
-    return 0;
-  }
-
-  if (!this->isApplied && !force) {
-    returnedValue = 1;
-  }
-  else if (this->isPermanent) {
-    returnedValue = 0;
-  }
-  else {
-    if (!this->leaveMemoryUnprotected) {
-      if (!VirtualProtect(address, this->patchSize, PAGE_EXECUTE_READWRITE, &oldAttr))
-        returnedValue = 0;
+// Disables and optionally deletes all patches
+bool UnpatchAll(bool doDelete, bool force) {
+  bool result = true;
+  for (auto it = allPatches.rbegin(); it != allPatches.rend(); ++it) {
+    if ((*it)->Disable(force) == false) {
+      result = false;
     }
-    memcpy(this->address, this->oldBytesBuffer, this->patchSize);
-    if (!this->leaveMemoryUnprotected) {
-      VirtualProtect(address, this->patchSize, oldAttr, &oldAttr);
-    }
-
-    this->isApplied = false;
   }
 
   if (doDelete) {
-    Patcher::RemovePatchFromList(this);
-    delete this;
+    allPatches.clear();
   }
 
-  return returnedValue;
+  return result;
 }
 
 
-// Use this if you want a copy of the original bytes this patch overwrites
-void* _Patch::CopyOriginalBytes(void *buffer, unsigned int sizeOfBuffer) {
-  return memcpy(buffer, this->oldBytesBuffer, ((sizeOfBuffer >= this->patchSize) ? this->patchSize : sizeOfBuffer));
+// Fixes up a pointer address to correct for module relocation
+void* FixPtr(const void *pointer, HMODULE module) {
+  if (module == reinterpret_cast<HMODULE>(-1)) {
+    if (!InitBaseModule()) {
+      return nullptr;
+    }
+    module = baseModule;
+  }
+  else if (!module) {
+    return nullptr;
+  }
+
+  uintptr_t preferredAddress;
+  auto it = modulePrefAddr.find(module);
+  if (it == modulePrefAddr.end() || !(it->second)) {
+    auto *optionalHeader = &reinterpret_cast<IMAGE_NT_HEADERS*>(
+      reinterpret_cast<uintptr_t>(module) +
+      reinterpret_cast<IMAGE_DOS_HEADER*>(module)->e_lfanew)->OptionalHeader;
+
+    if (optionalHeader->Magic == IMAGE_NT_OPTIONAL_HDR32_MAGIC) {
+      preferredAddress = optionalHeader->ImageBase;
+    }
+    else if (optionalHeader->Magic == IMAGE_NT_OPTIONAL_HDR64_MAGIC) {
+      preferredAddress = reinterpret_cast<IMAGE_OPTIONAL_HEADER64*>(optionalHeader)
+                         ->ImageBase;
+    }
+    else {
+      // Not a valid PE image
+      return nullptr;
+    }
+
+    modulePrefAddr[module] = preferredAddress;
+  }
+  else {
+    preferredAddress = it->second;
+  }
+
+  return reinterpret_cast<void*>(reinterpret_cast<uintptr_t>(pointer) -
+                                 preferredAddress +
+                                 reinterpret_cast<uintptr_t>(module));
 }
 
-  
-bool _Patch::Applied() {
-  return this->isApplied;
+
+static bool InitBaseModule() {
+  return baseModule || (baseModule = GetModuleHandle(nullptr));
 }
 
-
-bool _Patch::Valid() {
-  return !(this->invalid);
-}
-
-
-void _Patch::SetPermanent(bool permanent) {
-  this->isPermanent = permanent;
-}
-
-
-// Sets whether to leave memory access as PAGE_EXECUTE_READWRITE after overwriting, by default it resets previous protection
-void _Patch::SetLeaveMemoryUnprotected(bool leaveUnprotected) {
-  if (!this->isApplied) {
-    this->leaveMemoryUnprotected = leaveUnprotected;
+static HMODULE GetModuleFromAddress(void *address) {
+  HMODULE result;
+  if (GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS |
+                         GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                         reinterpret_cast<LPCSTR>(address), &result)) {
+    return result;
+  }
+  else {
+    return nullptr;
   }
 }
 
-
-_Patch* _Patch::GetNext() {
-  return this->next;    // Older patch
-}
-
-
-_Patch* _Patch::GetPrevious() {
-  return this->previous;  // Newer patch
-}
-
-
-
-
-// Fixes the provided relative address against OP2's load address (RVA to VA)
-DWORD OP2RVAToVA(DWORD relAddress) {
-  if (Patcher::imageBase == NULL
-    && !Patcher::InitModuleBase(EXPECTED_OP2_NAME)) {
-      return NULL;
+static bool IsModule64(HMODULE module) {
+  if (!module) {
+    return false;
   }
 
-  return (DWORD)(relAddress + Patcher::imageBase);
+  auto *optionalHeader = &reinterpret_cast<IMAGE_NT_HEADERS*>(
+    reinterpret_cast<uintptr_t>(module) +
+    reinterpret_cast<IMAGE_DOS_HEADER*>(module)->e_lfanew)->OptionalHeader;
+
+  return optionalHeader->Magic == IMAGE_NT_OPTIONAL_HDR64_MAGIC;
 }
+
+} // namespace Patcher

@@ -3,41 +3,34 @@
 #ifndef PORTFORWARD_H
 #define PORTFORWARD_H
 
-#include <Natupnp.h>
-#include <UPnP.h>
+#include "miniupnpc/include/miniupnpc.h"
+#include "libnatpnp/include/natpmp.h"
 
 class PortForwarder {
 public:
   PortForwarder();
+  PortForwarder(bool useUpnp, bool usePmp);
   ~PortForwarder();
 
-  bool StaticForward(char protocol, int externalPort, int internalPort,
-                     wchar_t *ipAddress, wchar_t *description);
-  bool StaticUnforward(char protocol, int externalPort);
+  bool Forward(bool udp, int externalPort, int internalPort, char *ipAddress,
+               char *description, int duration);
+  bool Unforward(bool udp, int port);
 
-  bool DynamicForward(wchar_t *remoteHost, char protocol, int externalPort,
-                      int internalPort, wchar_t *ipAddress, wchar_t *description,
-                      int duration);
-  bool DynamicUnforward(wchar_t *remoteHost, char protocol, int externalPort);
+  bool Initialize(bool useUpnp, bool usePmp);
+
+  bool IsUsingUpnp();
+  bool IsUsingPmp();
+
+  static char internalIp[46],
+              externalIp[46];
 
 private:
-  // COM interfaces
-  IUPnPNAT                      *nat;
-  IStaticPortMappingCollection  *staticCollection;
-  IDynamicPortMappingCollection *dynamicCollection;
-
-  bool Initialize();
-
-  bool StaticAdd(char protocol, int externalPort, int internalPort,
-                 wchar_t *ipAddress, wchar_t *description);
-  bool StaticRemove(char protocol, int externalPort);
-
-  bool DynamicAdd(wchar_t *remoteHost, char protocol, int externalPort,
-                  int internalPort, wchar_t *ipAddress, wchar_t *description,
-                  int duration);
-  bool DynamicRemove(wchar_t *remoteHost, char protocol, int externalPort);
+  bool upnpInited,
+       pmpInited;
+  UPNPUrls urls;
+  IGDdatas data;
+  natpmp_t natPmp;
+  bool wsaStarted;
 };
-
-bool GetLocalIPAddress(wchar_t *out, size_t outLen);
 
 #endif

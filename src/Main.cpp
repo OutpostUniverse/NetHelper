@@ -3,112 +3,129 @@
 // Adds UPnP port forwarding and makes the TCP layer bind to all adapters.
 
 #include <windows.h>
+#include <memory>
+#include "NetPatches.h"
 #include "PortForward.h"
 
-#ifdef _DEBUG
-#include <stdio.h>
-#define odprintf(format, ...) do { char odp[1025]; sprintf_s(odp, sizeof(odp), \
-  format "\n", __VA_ARGS__); OutputDebugString(odp); } while (0)
-#else
-#define odprintf(format, ...)
-#endif
 
-#define numof(array) (sizeof(array) / sizeof(array[0]))
-
-const int OP2_BEGIN_PORT = 47776,
-          OP2_END_PORT   = 47807;
-
-
-bool SetBindPatches(bool enable);
 DWORD WINAPI PortForwardTask(LPVOID lpParam);
-DWORD WINAPI PortUnforwardTask(LPVOID lpParam);
 
-enum fwdType {
+enum fwdMode {
   noForward = 0,
-  staticForward,
-  dynamicForward // ** Currently unsupported by UPnPNAT API
-} upnpMode;
-int leaseSec;
+  pmpOrUpnp,
+  upnpOnly,
+  pmpOnly
+} mode = noForward;
+bool doPmpReset = false;
+int leaseSec  = 0,
+    startPort = 47776,
+    endPort   = 47807;
 
-wchar_t localIp[46] = {};
-HANDLE hFwdThread = NULL;
-
-
-BOOL APIENTRY DllMain(HINSTANCE hinstDLL, DWORD fdwReason, LPVOID lpvReserved) {
-  if (fdwReason == DLL_PROCESS_DETACH) {
-    SetBindPatches(false);
-
-    if (upnpMode != noForward && localIp[0]) {
-      // Do UPnP in its own thread due to unresponsiveness of COM
-      // This doesn't seem to work here, blame Hooman for not adding mod cleanup
-      DWORD threadId = NULL;
-      if (hFwdThread) {
-        WaitForSingleObject(hFwdThread, INFINITE);
-      }
-      WaitForSingleObject(
-        CreateThread(NULL, 0, PortUnforwardTask, NULL, 0, &threadId),
-        INFINITE);
-    }
-  }
-  return TRUE;
-}
+std::unique_ptr<PortForwarder> forwarder;
+HANDLE hFwdThread = nullptr;
+bool shuttingDown = false;
 
 
 extern "C" __declspec(dllexport) void InitMod(char* iniSectionName) {
-  int bind = GetPrivateProfileInt(iniSectionName, "BindAll", 1, ".\\Outpost2.ini");
-  upnpMode = (fwdType)GetPrivateProfileInt(iniSectionName, "UPnPMode", 1,
-                                           ".\\Outpost2.ini");
-  leaseSec = GetPrivateProfileInt(iniSectionName, "LeaseSec", 24*60*60,
-                                  ".\\Outpost2.ini");
-  char forcedIp[46];
-  GetPrivateProfileString(iniSectionName, "UseIP", "", forcedIp, sizeof(forcedIp),
-                          ".\\Outpost2.ini");
-  if (strlen(forcedIp) >= 7) {
-    size_t converted = 0;
-    mbstowcs_s(&converted, localIp, numof(localIp), forcedIp, _TRUNCATE);
-  }
+  mode = (fwdMode)GetPrivateProfileInt(iniSectionName, "ForwardMode", 1,
+                                       ".\\Outpost2.ini");
 
-  if (bind) {
+  if (GetPrivateProfileInt(iniSectionName, "BindAll", 1, ".\\Outpost2.ini")) {
     SetBindPatches(true);
   }
 
-  if (upnpMode != noForward) {
-    // Do UPnP in its own thread due to unresponsiveness of COM
+  if (mode != noForward) {
+    doPmpReset = GetPrivateProfileInt(iniSectionName, "AllowPMPReset", 0,
+                                      ".\\Outpost2.ini") != 0;
+    leaseSec   = GetPrivateProfileInt(iniSectionName, "LeaseSec", 24*60*60,
+                                      ".\\Outpost2.ini");
+    startPort  = GetPrivateProfileInt(iniSectionName, "StartPort", 47776,
+                                      ".\\Outpost2.ini");
+    endPort    = GetPrivateProfileInt(iniSectionName, "EndPort", 47807,
+                                      ".\\Outpost2.ini");
+
+    SetGetIPPatch(true);
+
+    // Do port forwarding in its own thread because of network response delay
     DWORD threadId = NULL;
-    hFwdThread = CreateThread(NULL, 0, PortForwardTask, NULL, 0, &threadId);
+    hFwdThread = CreateThread(nullptr, 0, PortForwardTask, nullptr, 0, &threadId);
   }
+}
+
+
+extern "C" __declspec(dllexport) bool DestroyMod() {
+  bool result = true;
+
+  if (!SetBindPatches(false)) {
+    result = false;
+  }
+
+  if (mode != noForward) {
+    if (!SetGetIPPatch(false)) {
+      result = false;
+    }
+
+    if (hFwdThread) {
+      shuttingDown = true;
+      WaitForSingleObject(hFwdThread, INFINITE);
+    }
+
+    if (forwarder.get()) {
+      for (int i = startPort; i <= endPort; ++i) {
+        forwarder->Unforward(true, i);
+      }
+
+      forwarder.reset(nullptr);
+    }
+  }
+
+  return result;
 }
 
 
 DWORD WINAPI PortForwardTask(LPVOID lpParam) {
-  if (!localIp[0] && !GetLocalIPAddress(localIp, numof(localIp))) {
-    hFwdThread = NULL;
-    return 1;
-  }
+  forwarder.reset(new PortForwarder(mode == pmpOrUpnp || mode == upnpOnly,
+                                    mode == pmpOrUpnp || mode == pmpOnly));
 
-  PortForwarder forwarder;
   DWORD result = 0;
-  for (int i = OP2_BEGIN_PORT; i <= OP2_END_PORT; ++i) {
-    if ((upnpMode == staticForward &&
-         !forwarder.StaticForward('u', i, i, localIp, L"Outpost 2")) ||
-        (upnpMode == dynamicForward &&
-         !forwarder.DynamicForward(L"*", 'u', i, i, localIp, L"Outpost 2",
-                                   leaseSec))) {
+
+  for (int i = startPort; i <= endPort; ++i) {
+    if (shuttingDown) {
+      return result;
+    }
+
+    if (!forwarder->Forward(true, i, i, nullptr, "Outpost 2",
+        (forwarder->IsUsingPmp() && leaseSec == 0) ? 24*60*60 : leaseSec)) {
+      if (forwarder->IsUsingPmp()) {
+        if (doPmpReset) {
+          // Request to clear all NAT-PMP/PCP UDP port mappings and retry
+          doPmpReset = false;
+          forwarder->Unforward(true, 0);
+
+          i = startPort - 1;
+          continue;
+        }
+        else if (mode == pmpOrUpnp) {
+          // NAT-PMP/PCP is supported but unable to map ports, retry with UPnP
+          forwarder.reset(new PortForwarder(true, false));
+
+          i = startPort - 1;
+          continue;
+        }
+      }
+      else if (forwarder->IsUsingUpnp() && leaseSec != 0) {
+        // Failed using dynamic forwarding, retry using static forwarding
+        leaseSec = 0;
+
+        i = startPort - 1;
+        continue;
+      }
+
       result = 1;
+      break;
     }
   }
-  hFwdThread = NULL;
-  return result;
-}
 
-DWORD WINAPI PortUnforwardTask(LPVOID lpParam) {
-  PortForwarder forwarder;
-  DWORD result = 0;
-  for (int i = OP2_BEGIN_PORT; i <= OP2_END_PORT; ++i) {
-    if ((upnpMode == staticForward  && !forwarder.StaticUnforward('u', i)) ||
-        (upnpMode == dynamicForward && !forwarder.DynamicUnforward(L"*", 'u', i))) {
-      result = 1;
-    }
-  }
+  hFwdThread = nullptr;
   return result;
 }
