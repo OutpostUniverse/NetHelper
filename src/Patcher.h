@@ -6,6 +6,10 @@
 // Uncomment this line if using MinHook; comment otherwise:
 //#define PATCHER_MINHOOK
 
+#if defined(_MSC_VER) && !defined(__clang__) && !defined(__GNUC__)
+#define PATCHER_MSVC
+#endif
+
 #include <windows.h>
 #include <memory>
 #include <vector>
@@ -111,8 +115,6 @@ public:
   virtual bool Enable(bool force = false) = 0;
   virtual bool Disable(bool force = false) = 0;
 
-  virtual const void* GetOriginal() = 0;
-
   bool GetEnabled() { return enabled; }
   bool GetValid() { return !invalid; }
 
@@ -120,7 +122,7 @@ protected:
   patch() { enabled = false; module = reinterpret_cast<HMODULE>(-1); }
 
   bool VerifyModule();
-  void GetModuleState(HMODULE &moduleOut, size_t &hashOut);
+  void GetModuleInfo(HMODULE &moduleOut, size_t &hashOut);
 
   bool enabled,
        invalid;
@@ -140,12 +142,8 @@ public:
   virtual bool Enable(bool force = false);
   virtual bool Disable(bool force = false);
 
-  // Returns a pointer to the original bytes
-  virtual const void* GetOriginal();
-
 private:
-  std::unique_ptr<BYTE[]> oldBytesBuffer,
-                          newBytesBuffer;
+  std::unique_ptr<BYTE[]> newBytesBuffer;
   size_t size;
 };
 
@@ -160,7 +158,7 @@ public:
   virtual bool Disable(bool unused = false);
 
   // Returns a pointer to a MinHook function trampoline
-  virtual const void* GetOriginal();
+  const void* GetTrapoline();
 
 private:
   const void *newFunction,
@@ -178,9 +176,9 @@ inline void* FixPtr(uintptr_t address,
   return FixPtr(reinterpret_cast<const void*>(address), module);
 }
 
-// Cast pointer to member function to void*. Used by _GetPointer() macro in Clang.
-// NOTE: For virtual PMFs, uses Itanium ABI (not MSVC), and object instance passed
-// or class is default, copy, or move constructible. Class cannot multiply inherit.
+// Cast pointer to member function to void*. May be used by _GetPointer() macro.
+// NOTE: For virtual PMFs, an object instance must be passed or class is default,
+// copy, or move constructible. Class cannot multiply inherit.
 template <class T, class U>
 typename std::enable_if<std::is_member_function_pointer<U T::*>::value>::type*
   PMFCast(U T::*pmf, const T *self = nullptr) {
@@ -188,13 +186,24 @@ typename std::enable_if<std::is_member_function_pointer<U T::*>::value>::type*
     U T::*in;
     void *out;
     uintptr_t vftOffset;
-  } forcedCast;
+  } u;
 
-  forcedCast.in = pmf;
+  u.in = pmf;
 
-  if (forcedCast.vftOffset & 1) {
-    // Virtual (per Itanium ABI specification)
-    // Requires an object instance to get the vftable pointer
+  #ifdef PATCHER_MSVC
+  static BYTE vcall[] =
+    #ifdef _M_X64
+    { 0x48, 0x8B, 0x01, 0xFF }; // mov rax, [rcx]; jmp qword ptr [rax+?]
+    #else
+    { 0x8B, 0x01, 0xFF };       // mov eax, [ecx]; jmp dword ptr [eax+?]
+    #endif
+  auto *operand = reinterpret_cast<BYTE*>(u.out) + _countof(vcall);
+
+  if (memcmp(u.out, vcall, _countof(vcall)) == 0 && *operand & 0x20) {
+  #else
+  if (u.vftOffset & 1) {
+  #endif
+    // Virtual; requires an object instance to get the vftable pointer
     std::unique_ptr<T> dummy;
     if (!self) {
       dummy.reset(Util::_MakeDummy<T>());
@@ -203,11 +212,19 @@ typename std::enable_if<std::is_member_function_pointer<U T::*>::value>::type*
       }
     }
 
-    return *reinterpret_cast<void**>
-      (*reinterpret_cast<const uintptr_t*>(self) + forcedCast.vftOffset - 1);
+    uintptr_t offset =
+      #ifdef PATCHER_MSVC
+      *operand == 0x60 ? *(operand + 1) :
+      *operand == 0xA0 ? *reinterpret_cast<DWORD*>(operand + 1) : 0;
+      #else
+      u.vftOffset - 1;
+      #endif
+
+    return *reinterpret_cast<void**>(*reinterpret_cast<const uintptr_t*>(self) +
+                                     offset);
   }
   else {
-    return forcedCast.out;
+    return u.out;
   }
 }
 
@@ -248,37 +265,26 @@ inline T* _MakeDummy() { return _MakeDummy_impl<T>(); }
 } // namespace Patcher
 
 // Helper macro to get void* pointer to a class member function
-// Use like PatchFunction(_GetPointer(Class::MemberFunction), &newFunction)
-#if defined(__clang__)
-// Clang
-// To work on virtual functions, class must be default, move, or copy constructible
+// Used like PatchFunction(_GetPointer(Class::MemberFunction), &newFunction)
+#if defined(__clang__) || (defined(PATCHER_MSVC) && defined(_M_X64))
+// MSVC/C1 (x64), Clang: See comments of PMFCast about restrictions
 #define _GetPointer(function) Patcher::PMFCast(&function)
 #elif defined(__GNUC__)
-// GCC-compatible
+// GCC, ICC, etc.
 #define _GetPointer(function) ({                                               \
   _Pragma("GCC diagnostic push")                                               \
   _Pragma("GCC diagnostic ignored \"-Wpmf-conversions\"")                      \
   void *f_p = reinterpret_cast<void*>(&function);                              \
   _Pragma("GCC diagnostic pop")                                                \
   f_p; })
+#elif defined(PATCHER_MSVC)
+// MSVC/C1 (x86): Requires incremental linking to be disabled to work correctly
+#define _GetPointer(function) []() ->void* {                                   \
+  void *p; { __asm mov eax, function __asm mov p, eax } return p; }()
 #else
-// MSVC/C1, other
-#define _GetPointer(function)                                                  \
-  []() ->void* { void *p; _ASM_GET_PTR_(function, p); return p; }()
-#endif
-
-// ASM hack to get address of any non-overloaded function
-#if defined(_MSC_VER) && !defined(__clang__)
-// MSVC/C1-style inline assembly
-// NOTE: Requires incremental linking to be disabled to work correctly!
-#define _ASM_GET_PTR_(function, ptr)                                           \
-  do { __asm mov eax, function __asm mov ptr, eax } while (0)
-#else
-// GCC-style inline assembly
-// ** FIXME Broken for virtual functions; function instead of &function errors
-#define _ASM_GET_PTR_(function, ptr)                                           \
-  __asm__ __volatile__("movl %1, %%eax\n\t movl %%eax, %0\n\t"                 \
-    :"=r"(ptr) :"r"(&function) :"%eax", "memory")
+// Unsupported compiler
+#define _GetPointer(function) []() ->void* { static_assert(false,              \
+  "_GetPointer is only supported in MSVC, GCC, or Clang"); return nullptr; }()
 #endif
 
 

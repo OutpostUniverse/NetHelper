@@ -78,8 +78,7 @@ bool SetGetIPPatch(bool enable) {
 
   if (enable) {
     if (!(getIpPatch ||
-          (getIpPatch = PatchFunctionVirtual(FixPtr(0x4D64F8),
-                                             FixPtr(0x491400),
+          (getIpPatch = PatchFunctionVirtual(FixPtr(0x4D64F8), FixPtr(0x491400),
                                              &GetAddressString))) ||
         (strcmp(*reinterpret_cast<char**>(FixPtr(0x4E9220)),
                                           "Your local IP address is %s.") == 0 &&

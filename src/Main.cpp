@@ -21,7 +21,6 @@ int leaseSec  = 0,
     startPort = 47776,
     endPort   = 47807;
 
-std::unique_ptr<PortForwarder> forwarder;
 HANDLE hFwdThread = nullptr;
 bool shuttingDown = false;
 
@@ -70,12 +69,11 @@ extern "C" __declspec(dllexport) bool DestroyMod() {
       WaitForSingleObject(hFwdThread, INFINITE);
     }
 
-    if (forwarder.get()) {
-      for (int i = startPort; i <= endPort; ++i) {
-        forwarder->Unforward(true, i);
-      }
+    PortForwarder forwarder(mode == pmpOrUpnp || mode == upnpOnly,
+                            mode == pmpOrUpnp || mode == pmpOnly);
 
-      forwarder.reset(nullptr);
+    for (int i = startPort; i <= endPort; ++i) {
+      forwarder.Unforward(true, i);
     }
   }
 
@@ -84,36 +82,34 @@ extern "C" __declspec(dllexport) bool DestroyMod() {
 
 
 DWORD WINAPI PortForwardTask(LPVOID lpParam) {
-  forwarder.reset(new PortForwarder(mode == pmpOrUpnp || mode == upnpOnly,
-                                    mode == pmpOrUpnp || mode == pmpOnly));
+  PortForwarder forwarder(mode == pmpOrUpnp || mode == upnpOnly,
+                          mode == pmpOrUpnp || mode == pmpOnly);
 
   DWORD result = 0;
 
   for (int i = startPort; i <= endPort; ++i) {
     if (shuttingDown) {
-      return result;
+      break;
     }
 
-    if (!forwarder->Forward(true, i, i, nullptr, "Outpost 2",
-        (forwarder->IsUsingPmp() && leaseSec == 0) ? 24*60*60 : leaseSec)) {
-      if (forwarder->IsUsingPmp()) {
+    if (!forwarder.Forward(true, i, i, nullptr, "Outpost 2",
+        (forwarder.IsUsingPmp() && leaseSec == 0) ? 24*60*60 : leaseSec)) {
+      if (forwarder.IsUsingPmp()) {
         if (doPmpReset) {
           // Request to clear all NAT-PMP/PCP UDP port mappings and retry
           doPmpReset = false;
-          forwarder->Unforward(true, 0);
+          forwarder.Unforward(true, 0);
 
           i = startPort - 1;
           continue;
         }
         else if (mode == pmpOrUpnp) {
           // NAT-PMP/PCP is supported but unable to map ports, retry with UPnP
-          forwarder.reset(new PortForwarder(true, false));
-
-          i = startPort - 1;
-          continue;
+          mode = upnpOnly;
+          return PortForwardTask(lpParam);
         }
       }
-      else if (forwarder->IsUsingUpnp() && leaseSec != 0) {
+      else if (forwarder.IsUsingUpnp() && leaseSec != 0) {
         // Failed using dynamic forwarding, retry using static forwarding
         leaseSec = 0;
 
