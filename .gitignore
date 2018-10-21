@@ -1,0 +1,6 @@
+.vs
+src/Debug
+src/Release
+src/ReleaseMinSize
+*.user
+Outpost2
