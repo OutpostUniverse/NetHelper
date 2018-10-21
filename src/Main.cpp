@@ -15,7 +15,10 @@ enum fwdMode {
   pmpOrUpnp,
   upnpOnly,
   pmpOnly
-} mode = noForward;
+};
+
+fwdMode mode = noForward;
+
 bool doPmpReset = false;
 int leaseSec  = 0,
     startPort = 47776,
