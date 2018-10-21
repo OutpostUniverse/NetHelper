@@ -15,6 +15,7 @@
     <ProjectGuid>{371F4704-3EB9-48BE-B94E-0C0B8F17AAF9}</ProjectGuid>
     <RootNamespace>OP2Script</RootNamespace>
     <Keyword>AtlProj</Keyword>
+    <WindowsTargetPlatformVersion>8.1</WindowsTargetPlatformVersion>
   </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'" Label="Configuration">
@@ -22,12 +23,14 @@
     <UseOfMfc>false</UseOfMfc>
     <UseOfAtl>Dynamic</UseOfAtl>
     <CharacterSet>MultiByte</CharacterSet>
+    <PlatformToolset>v141</PlatformToolset>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release MinSize|Win32'" Label="Configuration">
     <ConfigurationType>DynamicLibrary</ConfigurationType>
     <UseOfMfc>false</UseOfMfc>
     <UseOfAtl>false</UseOfAtl>
     <CharacterSet>MultiByte</CharacterSet>
+    <PlatformToolset>v141</PlatformToolset>
   </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
   <ImportGroup Label="ExtensionSettings">
@@ -75,7 +78,7 @@
       <AdditionalIncludeDirectories>%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <PreprocessorDefinitions>WIN32;WIN32_LEAN_AND_MEAN;NDEBUG;_CRT_SECURE_NO_WARNINGS;_WINDOWS;_USRDLL;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <StringPooling>true</StringPooling>
-      <RuntimeLibrary>MultiThreadedDLL</RuntimeLibrary>
+      <RuntimeLibrary>MultiThreaded</RuntimeLibrary>
       <FunctionLevelLinking>true</FunctionLevelLinking>
       <PrecompiledHeaderOutputFile>.\ReleaseMinSize/NetHelper.pch</PrecompiledHeaderOutputFile>
       <AssemblerListingLocation>.\ReleaseMinSize/</AssemblerListingLocation>
@@ -92,7 +95,7 @@
       <Culture>0x0409</Culture>
     </ResourceCompile>
     <Link>
-      <AdditionalDependencies>ws2_32.lib;iphlpapi.lib;miniupnpc/lib/miniupnpc.lib;libnatpnp/lib/libnatpmp.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>ws2_32.lib;iphlpapi.lib;%(AdditionalDependencies)</AdditionalDependencies>
       <OutputFile>.\ReleaseMinSize/NetHelper.dll</OutputFile>
       <SuppressStartupBanner>true</SuppressStartupBanner>
       <IgnoreSpecificDefaultLibraries>%(IgnoreSpecificDefaultLibraries)</IgnoreSpecificDefaultLibraries>
@@ -111,8 +114,9 @@
       <OutputFile>.\ReleaseMinSize/OP2Script.bsc</OutputFile>
     </Bscmake>
     <PostBuildEvent>
-      <Message>Copying DLL to Outpost2 folder...</Message>
-      <Command>copy /Y "$(TargetPath)" "drive:\path\to\OP2\Disasterless\$(TargetFileName)"</Command>
+      <Message>Copying DLL to Outpost2 folder</Message>
+      <Command>copy $(TargetPath) ..\Outpost2\NetHelper
+copy NetHelper.pdb ..\Outpost2\NetHelper</Command>
     </PostBuildEvent>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
@@ -131,7 +135,7 @@
       <AdditionalIncludeDirectories>%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <PreprocessorDefinitions>WIN32;WIN32_LEAN_AND_MEAN;_DEBUG;_WINDOWS;_USRDLL;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <StringPooling>true</StringPooling>
-      <RuntimeLibrary>MultiThreadedDebugDLL</RuntimeLibrary>
+      <RuntimeLibrary>MultiThreadedDebug</RuntimeLibrary>
       <FunctionLevelLinking>true</FunctionLevelLinking>
       <PrecompiledHeaderOutputFile>.\Debug/NetHelper.pch</PrecompiledHeaderOutputFile>
       <AssemblerListingLocation>.\Debug/</AssemblerListingLocation>
@@ -147,7 +151,7 @@
       <Culture>0x0409</Culture>
     </ResourceCompile>
     <Link>
-      <AdditionalDependencies>ws2_32.lib;iphlpapi.lib;miniupnpc/lib/miniupnpcd.lib;libnatpnp/lib/libnatpmpd.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>ws2_32.lib;iphlpapi.lib;%(AdditionalDependencies)</AdditionalDependencies>
       <OutputFile>.\Debug/NetHelper.dll</OutputFile>
       <SuppressStartupBanner>true</SuppressStartupBanner>
       <IgnoreSpecificDefaultLibraries>%(IgnoreSpecificDefaultLibraries)</IgnoreSpecificDefaultLibraries>
@@ -168,8 +172,9 @@
       <OutputFile>.\Debug/OP2Script.bsc</OutputFile>
     </Bscmake>
     <PostBuildEvent>
-      <Message>Copying DLL to Outpost2 folder...</Message>
-      <Command>copy /Y "$(TargetPath)" "drive:\path\to\OP2\Disasterless\$(TargetFileName)"</Command>
+      <Message>Copying DLL to Outpost2 folder</Message>
+      <Command>copy $(TargetPath) ..\Outpost2\NetHelper
+copy NetHelper.pdb ..\Outpost2\NetHelper</Command>
     </PostBuildEvent>
   </ItemDefinitionGroup>
   <ItemGroup>
@@ -205,6 +210,14 @@
     <ClInclude Include="odprintf.h" />
     <ClInclude Include="Patcher.h" />
     <ClInclude Include="PortForward.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\libnatpmp\msvc\libnatpmp.vcxproj">
+      <Project>{d59b6527-f3de-4d26-a08d-52f1ee989301}</Project>
+    </ProjectReference>
+    <ProjectReference Include="..\miniupnp\miniupnpc\msvc\miniupnpc.vcxproj">
+      <Project>{d28ce435-cb33-4bae-8a52-c6ef915956f5}</Project>
+    </ProjectReference>
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

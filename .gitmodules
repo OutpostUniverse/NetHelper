@@ -1,0 +1,6 @@
+[submodule "miniupnp"]
+	path = miniupnp
+	url = https://github.com/OutpostUniverse/miniupnp.git
+[submodule "libnatpmp"]
+	path = libnatpmp
+	url = https://github.com/OutpostUniverse/libnatpmp.git

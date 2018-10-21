@@ -3,8 +3,8 @@
 #ifndef PORTFORWARD_H
 #define PORTFORWARD_H
 
-#include "miniupnpc/include/miniupnpc.h"
-#include "libnatpnp/include/natpmp.h"
+#include "../miniupnp/miniupnpc/miniupnpc.h"
+#include "../libnatpmp/natpmp.h"
 
 class PortForwarder {
 public:

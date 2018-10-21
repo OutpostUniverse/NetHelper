@@ -10,12 +10,11 @@
 #include <memory>
 #include "PortForward.h"
 
-#include "miniupnpc/include/miniwget.h"
-#include "miniupnpc/include/upnpcommands.h"
-#include "miniupnpc/include/upnperrors.h"
-#include "miniupnpc/include/miniupnpcstrings.h"
-#include "libnatpnp/include/natpmp.h"
-
+#include "../miniupnp/miniupnpc/miniwget.h"
+#include "../miniupnp/miniupnpc/upnpcommands.h"
+#include "../miniupnp/miniupnpc/upnperrors.h"
+#include "../miniupnp/miniupnpc/miniupnpcstrings.h"
+#include "../libnatpmp/natpmp.h"
 
 static bool GetInterfaceToInternet(in_addr_t *outGateway);
 static int ListenForPmpResponse(natpmp_t &natPmp, natpmpresp_t *response = nullptr,
