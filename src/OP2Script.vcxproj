@@ -166,6 +166,7 @@ copy NetHelper.pdb ..\Outpost2\NetHelper</Command>
       </DataExecutionPrevention>
       <ImportLibrary>.\Debug/NetHelper.lib</ImportLibrary>
       <TargetMachine>MachineX86</TargetMachine>
+      <ImageHasSafeExceptionHandlers>false</ImageHasSafeExceptionHandlers>
     </Link>
     <Bscmake>
       <SuppressStartupBanner>true</SuppressStartupBanner>
