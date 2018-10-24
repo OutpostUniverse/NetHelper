@@ -6,6 +6,7 @@
 #endif
 #include <unordered_map>
 #include <algorithm>
+#include <cstdint>
 
 namespace Patcher {
 
@@ -566,8 +567,13 @@ void* FixPtr(const void *pointer, HMODULE module) {
       preferredAddress = optionalHeader->ImageBase;
     }
     else if (optionalHeader->Magic == IMAGE_NT_OPTIONAL_HDR64_MAGIC) {
-      preferredAddress = reinterpret_cast<IMAGE_OPTIONAL_HEADER64*>(optionalHeader)
-                         ->ImageBase;
+		ULONGLONG preferredAddress64 = reinterpret_cast<IMAGE_OPTIONAL_HEADER64*>(optionalHeader)->ImageBase;
+
+		if (preferredAddress64 > MAXUINT32) {
+			return nullptr; // Image base must fit in a DWORD
+		}
+
+		preferredAddress = static_cast<uintptr_t>(preferredAddress64);
     }
     else {
       // Not a valid PE image
