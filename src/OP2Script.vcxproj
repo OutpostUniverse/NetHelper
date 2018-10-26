@@ -50,11 +50,11 @@
     <IntDir Condition="'$(Configuration)|$(Platform)'=='Release MinSize|Win32'">.\ReleaseMinSize\</IntDir>
     <PreBuildEventUseInBuild Condition="'$(Configuration)|$(Platform)'=='Release MinSize|Win32'">true</PreBuildEventUseInBuild>
     <LinkIncremental Condition="'$(Configuration)|$(Platform)'=='Release MinSize|Win32'">false</LinkIncremental>
-    <PostBuildEventUseInBuild Condition="'$(Configuration)|$(Platform)'=='Release MinSize|Win32'">false</PostBuildEventUseInBuild>
+    <PostBuildEventUseInBuild Condition="'$(Configuration)|$(Platform)'=='Release MinSize|Win32'">true</PostBuildEventUseInBuild>
     <OutDir Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">$(Configuration)\</OutDir>
     <IntDir Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">$(Configuration)\</IntDir>
     <LinkIncremental Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">true</LinkIncremental>
-    <PostBuildEventUseInBuild Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">false</PostBuildEventUseInBuild>
+    <PostBuildEventUseInBuild Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">true</PostBuildEventUseInBuild>
     <CodeAnalysisRuleSet Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">AllRules.ruleset</CodeAnalysisRuleSet>
     <CodeAnalysisRules Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'" />
     <CodeAnalysisRuleAssemblies Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'" />
@@ -115,8 +115,8 @@
     </Bscmake>
     <PostBuildEvent>
       <Message>Copying DLL to Outpost2 folder</Message>
-      <Command>copy $(TargetPath) ..\Outpost2\NetHelper
-copy NetHelper.pdb ..\Outpost2\NetHelper</Command>
+      <Command>xcopy /y /d $(TargetPath) ..\Outpost2\NetHelper\
+echo F|xcopy /y /d $(OutDir)NetHelper.pdb ..\Outpost2\NetHelper\NetHelper.pdb</Command>
     </PostBuildEvent>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
@@ -174,8 +174,8 @@ copy NetHelper.pdb ..\Outpost2\NetHelper</Command>
     </Bscmake>
     <PostBuildEvent>
       <Message>Copying DLL to Outpost2 folder</Message>
-      <Command>copy $(TargetPath) ..\Outpost2\NetHelper
-copy NetHelper.pdb ..\Outpost2\NetHelper</Command>
+      <Command>xcopy /y /d $(TargetPath) ..\Outpost2\NetHelper\
+echo F|xcopy /y /d $(OutDir)NetHelper.pdb ..\Outpost2\NetHelper\NetHelper.pdb</Command>
     </PostBuildEvent>
   </ItemDefinitionGroup>
   <ItemGroup>
