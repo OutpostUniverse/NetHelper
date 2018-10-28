@@ -170,8 +170,7 @@ bool PortForwarder::Initialize(bool useUpnp, bool usePmp) {
       // Successfully initialized NAT-PMP/PCP, store external IP
       if (!error) {
         if (!externalIp[0]) {
-          strcpy_s(externalIp, sizeof(externalIp),
-                   inet_ntoa(response.pnu.publicaddress.addr));
+          inet_ntop(AF_INET, &response.pnu.publicaddress.addr, &externalIp[0], sizeof(externalIp));
         }
         return (pmpInited = true);
       }
