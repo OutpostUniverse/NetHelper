@@ -115,8 +115,7 @@
     </Bscmake>
     <PostBuildEvent>
       <Message>Copying DLL to Outpost2 folder</Message>
-      <Command>xcopy /y /d $(TargetPath) ..\Outpost2\NetHelper\
-echo F|xcopy /y /d $(OutDir)NetHelper.pdb ..\Outpost2\NetHelper\NetHelper.pdb</Command>
+      <Command>xcopy /y /d $(TargetPath) ..\Outpost2\NetHelper\</Command>
     </PostBuildEvent>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
@@ -174,8 +173,7 @@ echo F|xcopy /y /d $(OutDir)NetHelper.pdb ..\Outpost2\NetHelper\NetHelper.pdb</C
     </Bscmake>
     <PostBuildEvent>
       <Message>Copying DLL to Outpost2 folder</Message>
-      <Command>xcopy /y /d $(TargetPath) ..\Outpost2\NetHelper\
-echo F|xcopy /y /d $(OutDir)NetHelper.pdb ..\Outpost2\NetHelper\NetHelper.pdb</Command>
+      <Command>xcopy /y /d $(TargetPath) ..\Outpost2\NetHelper\</Command>
     </PostBuildEvent>
   </ItemDefinitionGroup>
   <ItemGroup>
