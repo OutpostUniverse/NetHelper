@@ -255,8 +255,7 @@ static bool GetInterfaceToInternet(in_addr_t *outGateway) {
           strcpy_s(PortForwarder::internalIp, sizeof(PortForwarder::internalIp),
                    curAdapter->IpAddressList.IpAddress.String);
         }
-        *outGateway = inet_addr(curAdapter->GatewayList.IpAddress.String);
-        return true;
+        return inet_pton(AF_INET, curAdapter->GatewayList.IpAddress.String, outGateway) == 1;
       }
     }
   }
