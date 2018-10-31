@@ -3,7 +3,7 @@ Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio 15
 VisualStudioVersion = 15.0.28010.2003
 MinimumVisualStudioVersion = 10.0.40219.1
-Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "NetHelper", "OP2Script.vcxproj", "{371F4704-3EB9-48BE-B94E-0C0B8F17AAF9}"
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "NetHelper", "NetHelper.vcxproj", "{371F4704-3EB9-48BE-B94E-0C0B8F17AAF9}"
 EndProject
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "miniupnpc", "..\miniupnp\miniupnpc\msvc\miniupnpc.vcxproj", "{D28CE435-CB33-4BAE-8A52-C6EF915956F5}"
 EndProject
@@ -12,26 +12,19 @@ EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Win32 = Debug|Win32
-		Release MinSize|Win32 = Release MinSize|Win32
 		Release|Win32 = Release|Win32
 	EndGlobalSection
 	GlobalSection(ProjectConfigurationPlatforms) = postSolution
 		{371F4704-3EB9-48BE-B94E-0C0B8F17AAF9}.Debug|Win32.ActiveCfg = Debug|Win32
 		{371F4704-3EB9-48BE-B94E-0C0B8F17AAF9}.Debug|Win32.Build.0 = Debug|Win32
-		{371F4704-3EB9-48BE-B94E-0C0B8F17AAF9}.Release MinSize|Win32.ActiveCfg = Release MinSize|Win32
-		{371F4704-3EB9-48BE-B94E-0C0B8F17AAF9}.Release MinSize|Win32.Build.0 = Release MinSize|Win32
-		{371F4704-3EB9-48BE-B94E-0C0B8F17AAF9}.Release|Win32.ActiveCfg = Release MinSize|Win32
-		{371F4704-3EB9-48BE-B94E-0C0B8F17AAF9}.Release|Win32.Build.0 = Release MinSize|Win32
+		{371F4704-3EB9-48BE-B94E-0C0B8F17AAF9}.Release|Win32.ActiveCfg = Release|Win32
+		{371F4704-3EB9-48BE-B94E-0C0B8F17AAF9}.Release|Win32.Build.0 = Release|Win32
 		{D28CE435-CB33-4BAE-8A52-C6EF915956F5}.Debug|Win32.ActiveCfg = Debug|Win32
 		{D28CE435-CB33-4BAE-8A52-C6EF915956F5}.Debug|Win32.Build.0 = Debug|Win32
-		{D28CE435-CB33-4BAE-8A52-C6EF915956F5}.Release MinSize|Win32.ActiveCfg = Release|Win32
-		{D28CE435-CB33-4BAE-8A52-C6EF915956F5}.Release MinSize|Win32.Build.0 = Release|Win32
 		{D28CE435-CB33-4BAE-8A52-C6EF915956F5}.Release|Win32.ActiveCfg = Release|Win32
 		{D28CE435-CB33-4BAE-8A52-C6EF915956F5}.Release|Win32.Build.0 = Release|Win32
 		{D59B6527-F3DE-4D26-A08D-52F1EE989301}.Debug|Win32.ActiveCfg = Debug|Win32
 		{D59B6527-F3DE-4D26-A08D-52F1EE989301}.Debug|Win32.Build.0 = Debug|Win32
-		{D59B6527-F3DE-4D26-A08D-52F1EE989301}.Release MinSize|Win32.ActiveCfg = Release|Win32
-		{D59B6527-F3DE-4D26-A08D-52F1EE989301}.Release MinSize|Win32.Build.0 = Release|Win32
 		{D59B6527-F3DE-4D26-A08D-52F1EE989301}.Release|Win32.ActiveCfg = Release|Win32
 		{D59B6527-F3DE-4D26-A08D-52F1EE989301}.Release|Win32.Build.0 = Release|Win32
 	EndGlobalSection
