@@ -5,6 +5,7 @@
 
 #include <windows.h>
 #include <stdio.h>
+#include <ws2tcpip.h>
 #include <winsock2.h>
 #include <iphlpapi.h>
 #include <memory>
@@ -170,8 +171,7 @@ bool PortForwarder::Initialize(bool useUpnp, bool usePmp) {
       // Successfully initialized NAT-PMP/PCP, store external IP
       if (!error) {
         if (!externalIp[0]) {
-          strcpy_s(externalIp, sizeof(externalIp),
-                   inet_ntoa(response.pnu.publicaddress.addr));
+          inet_ntop(AF_INET, &response.pnu.publicaddress.addr, &externalIp[0], sizeof(externalIp));
         }
         return (pmpInited = true);
       }
@@ -255,8 +255,7 @@ static bool GetInterfaceToInternet(in_addr_t *outGateway) {
           strcpy_s(PortForwarder::internalIp, sizeof(PortForwarder::internalIp),
                    curAdapter->IpAddressList.IpAddress.String);
         }
-        *outGateway = inet_addr(curAdapter->GatewayList.IpAddress.String);
-        return true;
+        return inet_pton(AF_INET, curAdapter->GatewayList.IpAddress.String, outGateway) == 1;
       }
     }
   }
