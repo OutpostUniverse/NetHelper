@@ -21,8 +21,8 @@ public:
   bool IsUsingUpnp();
   bool IsUsingPmp();
 
-  static char internalIp[46],
-              externalIp[46];
+  static char internalIp[INET6_ADDRSTRLEN],
+              externalIp[INET6_ADDRSTRLEN];
 
 private:
   bool upnpInited,
