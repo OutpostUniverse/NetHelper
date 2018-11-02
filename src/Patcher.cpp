@@ -570,7 +570,7 @@ void* FixPtr(const void *pointer, HMODULE module) {
 
     #ifdef _WIN64
       preferredAddress = reinterpret_cast<IMAGE_OPTIONAL_HEADER64*>(optionalHeader)->ImageBase;
-    #elif
+    #else
       preferredAddress = optionalHeader->ImageBase;
     #endif
 
