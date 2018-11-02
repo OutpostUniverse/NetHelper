@@ -3,6 +3,7 @@
 #ifndef PORTFORWARD_H
 #define PORTFORWARD_H
 
+#include <ws2tcpip.h>
 #include "../miniupnp/miniupnpc/miniupnpc.h"
 #include "../libnatpmp/natpmp.h"
 
