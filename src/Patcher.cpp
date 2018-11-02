@@ -562,11 +562,11 @@ void* FixPtr(const void *pointer, HMODULE module) {
       reinterpret_cast<uintptr_t>(module) +
       reinterpret_cast<IMAGE_DOS_HEADER*>(module)->e_lfanew)->OptionalHeader;
 
-    if ((optionalHeader->Magic != IMAGE_NT_OPTIONAL_HDR32_MAGIC) && 
-       ((optionalHeader->Magic != IMAGE_NT_OPTIONAL_HDR64_MAGIC)) {
+    if (optionalHeader->Magic != IMAGE_NT_OPTIONAL_HDR32_MAGIC && 
+        optionalHeader->Magic != IMAGE_NT_OPTIONAL_HDR64_MAGIC) {
       // Not a valid PE image
       return nullptr;
-		}
+    }
 
     #ifdef _WIN64
       preferredAddress = reinterpret_cast<IMAGE_OPTIONAL_HEADER64*>(optionalHeader)->ImageBase;
