@@ -3,6 +3,7 @@
 #ifndef PORTFORWARD_H
 #define PORTFORWARD_H
 
+#include <ws2tcpip.h>
 #include "../miniupnp/miniupnpc/miniupnpc.h"
 #include "../libnatpmp/natpmp.h"
 
@@ -21,8 +22,8 @@ public:
   bool IsUsingUpnp();
   bool IsUsingPmp();
 
-  static char internalIp[46],
-              externalIp[46];
+  static char internalIp[INET6_ADDRSTRLEN],
+              externalIp[INET6_ADDRSTRLEN];
 
 private:
   bool upnpInited,

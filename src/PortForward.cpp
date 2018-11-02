@@ -5,7 +5,6 @@
 
 #include <windows.h>
 #include <stdio.h>
-#include <ws2tcpip.h>
 #include <winsock2.h>
 #include <iphlpapi.h>
 #include <memory>
@@ -21,8 +20,8 @@ static bool GetInterfaceToInternet(in_addr_t *outGateway);
 static int ListenForPmpResponse(natpmp_t &natPmp, natpmpresp_t *response = nullptr,
                                 int maxTries = 9);
 
-char PortForwarder::internalIp[46] = {},
-     PortForwarder::externalIp[46] = {};
+char PortForwarder::internalIp[INET6_ADDRSTRLEN] = {},
+     PortForwarder::externalIp[INET6_ADDRSTRLEN] = {};
 
 
 PortForwarder::PortForwarder() {
