@@ -211,6 +211,7 @@
     <ClInclude Include="odprintf.h" />
     <ClInclude Include="Patcher.h" />
     <ClInclude Include="PortForward.h" />
+    <ClInclude Include="resource.h" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\libnatpmp\msvc\libnatpmp.vcxproj">
@@ -219,6 +220,9 @@
     <ProjectReference Include="..\miniupnp\miniupnpc\msvc\miniupnpc.vcxproj">
       <Project>{d28ce435-cb33-4bae-8a52-c6ef915956f5}</Project>
     </ProjectReference>
+  </ItemGroup>
+  <ItemGroup>
+    <ResourceCompile Include="NetHelper.rc" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
