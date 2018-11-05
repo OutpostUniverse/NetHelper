@@ -1,7 +1,7 @@
 =========================
-Outpost 2 NetHelper 1.5.2
+Outpost 2 NetHelper 1.5.3
 by Arklon
-10/31/2016
+11/03/2018
 =========================
 
 =====
@@ -92,6 +92,15 @@ these at their implied defaults (47776 and 47807).
 CHANGELOG
 =========
 
+1.5.3
+- Updated to newer versions of libnatpmp and miniupnp.
+  - Cuts down cleanup/destruction on application closing from 3 mins to 8 secs.
+- Changed dependency references from precompiled library files to Git submodules.
+- Removed dependencies on msvcr100.dll and msvcp100.dll by statically compiling.
+- Set release compilation optimization properties closer to MSVC default settings.
+- Removed deprecated POSIX networking functions.
+- Update code to remove benign variable type conversion warning in Patcher.
+
 1.5.2
 - Fixed a minor memory leak.
 
@@ -126,7 +135,7 @@ CHANGELOG
 =======
 LICENSE
 =======
-Copyright (c) 2016.
+Copyright (c) 2018.
 
 This program is free software: you can redistribute it and/or modify
 it under the terms of the GNU Lesser General Public License as published
